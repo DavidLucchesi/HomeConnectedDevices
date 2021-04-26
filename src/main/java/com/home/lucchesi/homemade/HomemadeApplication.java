@@ -22,8 +22,6 @@ public class HomemadeApplication {
             System.out.println("Device Yeelight Manager - Start");
             DeviceManager deviceManager = new DeviceManager();
             deviceManager.show();
-            CommandManager commandManager = new CommandManager(deviceManager);
-            commandManager.main();
             System.out.println("Device Yeelight Manager - Stop");
         };
     }
