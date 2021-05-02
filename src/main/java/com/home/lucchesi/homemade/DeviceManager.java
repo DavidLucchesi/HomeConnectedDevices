@@ -6,10 +6,12 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.*;
 import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
 
 public class DeviceManager {
     public ArrayList<Device> deviceList;
-    public static int maxTries = 10;
+    public static int timeToCheckMillis = 2000;
 
     public DeviceManager() {
         this.deviceList = new ArrayList<>();
@@ -17,20 +19,42 @@ public class DeviceManager {
         //setDeviceList();
     }
 
-    public Device explore() {
+    public List<Device> explore() {
         try {
+            //Handle interface and port
+            NetworkInterface nif = NetworkInterface.getByName("wlan2");
+            Enumeration<InetAddress> nifAddreses = nif.getInetAddresses();
+            InetAddress internalWifiAddress = nifAddreses.nextElement();
+            MulticastSocket ms = new MulticastSocket(52000);
+            ms.setInterface(internalWifiAddress);
+            ms.setSoTimeout(2000);
+
+            //Prepare data packet
             byte[] sendData;
-            byte[] receiveData = new byte[1024];
+            byte[] receiveData = new byte[2048];
             String MSEARCH = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1982\r\nMAN: \"ssdp:discover\"\r\nST: wifi_bulb";
             sendData = MSEARCH.getBytes();
             DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, InetAddress.getByName("239.255.255.250"), 1982);
-            DatagramSocket clientSocket = new DatagramSocket();
-            clientSocket.send(sendPacket);
-            DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-            clientSocket.receive(receivePacket);
-            String response = new String(receivePacket.getData());
-            clientSocket.close();
-            Device result = new Device(response);
+
+            //Send and receive packet
+            ms.send(sendPacket);
+
+            long startTime = System.currentTimeMillis();
+            long endTime = startTime + timeToCheckMillis;
+            ArrayList<Device> result = new ArrayList<>();
+            while (System.currentTimeMillis() < endTime) {
+                try {
+                    DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+                    ms.setSoTimeout(2000);
+                    ms.receive(receivePacket);
+                    String response = new String(receivePacket.getData());
+                    result.add(new Device(response));
+                    Thread.sleep(100);
+                } catch (SocketTimeoutException e) {
+                    continue;
+                }
+            }
+            ms.close();
             return result;
         } catch (Exception e) {
             return null;
@@ -38,16 +62,14 @@ public class DeviceManager {
     }
 
     public void createDeviceList() {
-        System.out.print("Explore ");
-        for (int i = 0; i < maxTries; i++) {
-            try {
-                System.out.print(".");
-                addIfNotExists(explore());
-            } catch (Exception e) {
-                System.out.println("Error during DeviceManager exploration.");
+        System.out.println("Explore");
+        try {
+            for (Device device : explore()) {
+                addIfNotExists(device);
             }
+        } catch (Exception e) {
+            System.out.println("Error during DeviceManager exploration.");
         }
-        System.out.println();
     }
 
     public void setDeviceList() {
@@ -82,19 +104,16 @@ public class DeviceManager {
 
     public void sendOneDevice(String message, int deviceNumber) {
         Device device = deviceList.get(deviceNumber);
-        //System.out.println("Test for : " + device.id + " ; " + device.ipAddress);
         try {
             InetSocketAddress inetSocketAddress = new InetSocketAddress(device.ipAddress, device.port);
             Socket socket = new Socket();
             socket.connect(inetSocketAddress, 1000);
             BufferedReader socketReader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             BufferedWriter socketWriter = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-            //System.out.println(message);
             socketWriter.write(message);
             socketWriter.flush();
-            String result = socketReader.readLine();
+            socketReader.readLine();
             socket.close();
-            //System.out.println("Data received : " + result);
         } catch (Exception e) {
             System.out.println("Error : " + e);
         }
